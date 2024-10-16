@@ -127,7 +127,7 @@ class FedValClient(BaseFedAvgClient):
             # knowledge
             models_wts = reprs_dict
 
-            avg_wts = self.weighted_aggregate(
+            avg_wts = self.aggregate(
                 models_wts, collab_weights_dict, self.model_keys_to_ignore
             )
 
@@ -190,9 +190,7 @@ class FedValServer(BaseFedAvgServer):
         )
 
         # Collect models from all clients
-        models = self.comm_utils.wait_for_all_clients(
-            self.users, self.tag.REPR_ADVERT
-        )
+        models = self.comm_utils.wait_for_all_clients(self.users, self.tag.REPR_ADVERT)
         self.log_utils.log_console("Server received all clients models")
 
         # Broadcast the models to all clients
