@@ -298,34 +298,62 @@ malicious_traditional_model_poisoning_attack: ConfigType = {
 }
 
 
+split_inference: ConfigType = {
+    "algo": "split_inference",
+    "model": "resnet10",
+    "model_lr": 3e-4,
+    # "client": {"model_name": "resnet18", "split_layer": 6,
+    #            "pretrained": false, "optimizer": "adam", "lr": 3e-4},
+    # "server": {"model_name": "resnet18", "split_layer": 6, "logits": 2, "pretrained": false,
+    #            "lr": 3e-4, "optimizer": "adam"},
+    "split_layer": 6,
+    "learning_rate": 0.01,
+    "epochs": 5,#150,
+    "batch_size": 128,
+    "training_batch_size": 512,#128, this might be mixed
+    "dataset": "fairface",
+    "protected_attribute": "data",
+    "prediction_attribute": "gender",
+    "exp_id": "1",
+    "img_size": 128,
+    "split": False,
+    "test_batch_size": 64,
+    "seed": 12,
+    "exp_keys": []
+}
 
-# List of algorithm configurations
-algo_config_list: List[ConfigType] = [
-    iid_dispfl_clients_new,
-    traditional_fl,
-    malicious_traditional_data_poisoning_attack,
-    malicious_traditional_model_poisoning_attack,
-    malicious_traditional_model_update_attack,
-    fedweight,
-    defkt,
-    fedavg_object_detect,
-    fediso,
-    L2C,
-    fedcentral,
-    fedval,
-    swarm,
-    fedstatic,
-    metaL2C_cifar10,
-    feddatarepr,
-]
-
-# Malicious List of algorithm configurations
-malicious_algo_config_list: List[ConfigType] = [
-    traditional_fl,
-    malicious_traditional_data_poisoning_attack,
-    malicious_traditional_model_poisoning_attack,
-    malicious_traditional_model_update_attack,
-]
+current_config = split_inference
 
 
-default_config_list: List[ConfigType] = [traditional_fl]
+
+# # List of algorithm configurations
+# algo_config_list: List[ConfigType] = [
+#     iid_dispfl_clients_new,
+#     traditional_fl,
+#     malicious_traditional_data_poisoning_attack,
+#     malicious_traditional_model_poisoning_attack,
+#     malicious_traditional_model_update_attack,
+#     fedweight,
+#     defkt,
+#     fedavg_object_detect,
+#     fediso,
+#     L2C,
+#     fedcentral,
+#     fedval,
+#     swarm,
+#     fedstatic,
+#     metaL2C_cifar10,
+#     feddatarepr,
+# ]
+
+# # Malicious List of algorithm configurations
+# malicious_algo_config_list: List[ConfigType] = [
+#     traditional_fl,
+#     malicious_traditional_data_poisoning_attack,
+#     malicious_traditional_model_poisoning_attack,
+#     malicious_traditional_model_update_attack,
+# ]
+
+
+# default_config_list: List[ConfigType] = [traditional_fl]
+

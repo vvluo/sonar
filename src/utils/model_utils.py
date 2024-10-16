@@ -211,6 +211,95 @@ class ModelUtils:
 
         acc = correct / len(dloader.dataset)
         return train_loss, acc
+
+
+
+    def forward_si_client(self,
+    model: nn.Module,
+    global_pool,
+    view_layer,
+    optim,
+    data,
+    device: torch.device,
+    test_loader=None,
+    **kwargs):
+        #print("started training with dset ", self.dset)
+        
+        model.train()
+        
+        optim.zero_grad()
+        
+        intermediate = model(data)
+        intermediate = global_pool(intermediate)
+        intermediate = view_layer(intermediate)
+
+        intermediate = intermediate.detach()
+        intermediate.requires_grad = True
+        # print("here is the shape of intermediate", intermediate.shape)
+        return intermediate
+    
+    def forward_si_server(self,
+    model: nn.Module,
+    optim,
+    intermediate,
+    device: torch.device,
+    test_loader=None,
+    **kwargs):
+        #print("started training with dset ", self.dset)
+        model.train()
+        intermediate.retain_grad()
+
+        output = model(intermediate)
+
+        return output
+    
+    def backward_si_server(self,
+    optim,
+    intermediate,
+    output,
+    target,
+    loss_fn,
+    device: torch.device,
+    test_loader=None,
+    **kwargs):
+        #model.train()
+        
+        optim.zero_grad()
+        #print("started training with dset ", self.dset)
+        
+        loss = loss_fn(output, target)
+        loss.backward()
+        optim.step()
+
+        return intermediate.grad
+    
+    def backward_si_client(self,
+    optim,
+    intermediate,
+    gradients,
+    device: torch.device,
+    test_loader=None,
+    **kwargs):
+        #model.train()
+        
+        optim.zero_grad()
+        
+        intermediate.backward(gradients)
+        optim.step()
+
+
+    def train_mask(self,
+    model: nn.Module,
+    mask,
+    optim,
+    dloader,
+    loss_fn,
+    device: torch.device,
+    **kwargs) -> Tuple[float,
+     float]:
+        """TODO: generate docstring
+        """
+
     
     def train_classification_malicious(
         self,
@@ -301,6 +390,7 @@ class ModelUtils:
         **kwargs,
     ) -> Tuple[float, float]:
         """TODO: generate docstring"""
+
         model.train()
         train_loss = 0
         correct = 0
