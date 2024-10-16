@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, List
+
 
 class CommunicationInterface(ABC):
     def __init__(self):
@@ -10,11 +11,11 @@ class CommunicationInterface(ABC):
         pass
 
     @abstractmethod
-    def send(self, dest: str|int, data: Any):
+    def send(self, dest: str | int, data: Any):
         pass
 
     @abstractmethod
-    def receive(self, node_ids: str|int) -> Any:
+    def receive(self, node_ids: List[int]) -> Any:
         pass
 
     @abstractmethod

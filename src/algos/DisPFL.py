@@ -4,14 +4,12 @@ This module defines the DisPFLClient and DisPFLServer classes for distributed pe
 
 import copy
 import math
-import random
 from collections import OrderedDict
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-import torch.nn as nn
-from torch import Tensor, from_numpy, numel, randperm, zeros_like
+from torch import Tensor, nn
 
 from algos.base_class import BaseClient, BaseServer
 
@@ -21,34 +19,63 @@ class CommProtocol:
     Communication protocol tags for the server and clients.
     """
 
-    DONE = 0  # Used to signal the server that the client is done with local training
-    START = 1  # Used to signal by the server to start the current round
-    UPDATES = 2  # Used to send the updates from the server to the clients
-    LAST_ROUND = 3
-    SHARE_MASKS = 4
-    SHARE_WEIGHTS = 5
-    FINISH = 6  # Used to signal the server to finish the current round
+    DONE: int = (
+        0  # Used to signal the server that the client is done with local training
+    )
+    START: int = 1  # Used to signal by the server to start the current round
+    UPDATES: int = 2  # Used to send the updates from the server to the clients
+    LAST_ROUND: int = 3
+    SHARE_MASKS: int = 4
+    SHARE_WEIGHTS: int = 5
+    FINISH: int = 6  # Used to signal the server to finish the current round
 
 
 class DisPFLClient(BaseClient):
     """
     Client class for DisPFL (Distributed Personalized Federated Learning).
+
+    Attributes:
+        config (Dict[str, Any]): Configuration dictionary with hyperparameters and paths.
+        params (Optional[Dict[str, Tensor]]): Model parameters for local training.
+        mask (Optional[OrderedDict[str, Tensor]]): Masks for model pruning.
+        index (Optional[int]): The index of the client node.
+        repr (Optional[OrderedDict[str, Tensor]]): Model representation (weights).
+        dense_ratio (float): Ratio of dense layers in the model.
+        anneal_factor (float): Annealing factor for model pruning.
+        dis_gradient_check (bool): Whether to check the gradient during pruning.
+        server_node (int): Index of the server node.
+        num_users (int): Total number of users (clients) in the system.
+        neighbors (List[int]): List of neighboring nodes for communication.
     """
-    def __init__(self, config) -> None:
+
+    def __init__(self, config: Dict[str, Any]) -> None:
+        """
+        Initializes the DisPFLClient class.
+
+        Args:
+            config (Dict[str, Any]): Configuration dictionary containing settings and hyperparameters.
+        """
         super().__init__(config)
+        self.params: Optional[Dict[str, Tensor]] = None
+        self.mask: Optional[OrderedDict[str, Tensor]] = None
+        self.index: Optional[int] = None
+        self.repr: Optional[OrderedDict[str, Tensor]] = None
         self.config = config
         self.tag = CommProtocol
-        self.model_save_path = f"{self.config['results_path']}/saved_models/node_{self.node_id}.pt"
-        self.dense_ratio = self.config["dense_ratio"]
-        self.anneal_factor = self.config["anneal_factor"]
-        self.dis_gradient_check = self.config["dis_gradient_check"]
-        self.server_node = 1  # leader node
-        self.num_users = config["num_users"]
-        self.neighbors = list(range(self.num_users))
+        self.model_save_path = (
+            f"{self.config['results_path']}/saved_models/node_{self.node_id}.pt"
+        )
+        self.dense_ratio: float = self.config["dense_ratio"]
+        self.anneal_factor: float = self.config["anneal_factor"]
+        self.dis_gradient_check: bool = self.config["dis_gradient_check"]
+        self.server_node: int = 1  # leader node
+        self.num_users: int = config["num_users"]
+        self.neighbors: List[int] = list(range(self.num_users))
+
         if self.node_id == 1:
             self.clients = list(range(2, self.num_users + 1))
 
-    def local_train(self):
+    def local_train(self) -> None:
         """
         Train the model locally.
         """
@@ -57,20 +84,28 @@ class DisPFLClient(BaseClient):
         )
         print(f"Node{self.node_id} train loss: {loss}, train acc: {acc}")
 
-    def local_test(self, **kwargs):
+    def local_test(self, **kwargs: Any) -> Tuple[float, float]:
         """
         Test the model locally, not to be used in the traditional FedAvg.
+
+        Args:
+            kwargs (Any): Additional arguments for testing (not used).
+
+        Returns:
+            Tuple[float, float]: Test loss and accuracy.
         """
         test_loss, acc = self.model_utils.test(
             self.model, self._test_loader, self.loss_fn, self.device
         )
-        # TODO save the model if the accuracy is better than the best accuracy so far
-        # if acc > self.best_acc:
-        #     self.best_acc = acc
-        #     self.model_utils.save_model(self.model, self.model_save_path)
         return test_loss, acc
 
-    def get_trainable_params(self):
+    def get_trainable_params(self) -> Dict[str, Tensor]:
+        """
+        Retrieves the trainable parameters of the model.
+
+        Returns:
+            Dict[str, Tensor]: A dictionary of model parameters.
+        """
         param_dict = {}
         for name, param in self.model.named_parameters():
             param_dict[name] = param
@@ -78,26 +113,42 @@ class DisPFLClient(BaseClient):
 
     def get_representation(self) -> OrderedDict[str, Tensor]:
         """
-        Share the model weights.
+        Retrieve the current model weights.
+
+        Returns:
+            OrderedDict[str, Tensor]: The model weights.
         """
         return self.model.state_dict()
 
-    def set_representation(self, representation: OrderedDict[str, Tensor]):
+    def set_representation(self, representation: OrderedDict[str, Tensor]) -> None:
         """
         Set the model weights.
+
+        Args:
+            representation (OrderedDict[str, Tensor]): The model weights to be set.
         """
         self.model.load_state_dict(representation)
 
-    def fire_mask(self, masks, round_num, total_round):
+    def fire_mask(
+        self, masks: OrderedDict[str, Tensor], round_num: int, total_round: int
+    ) -> Tuple[OrderedDict[str, Tensor], Dict[str, int]]:
         """
         Fire mask method for model pruning.
+
+        Args:
+            masks (OrderedDict[str, Tensor]): The current mask.
+            round_num (int): The current round number.
+            total_round (int): Total number of rounds.
+
+        Returns:
+            Tuple[OrderedDict[str, Tensor], Dict[str, int]]: The updated masks and the number of elements removed.
         """
         weights = self.get_representation()
         drop_ratio = (
             self.anneal_factor / 2 * (1 + np.cos((round_num * np.pi) / total_round))
         )
         new_masks = copy.deepcopy(masks)
-        num_remove = {}
+        num_remove: Dict[str, int] = {}
         for name in masks:
             num_non_zeros = torch.sum(masks[name])
             num_remove[name] = math.ceil(drop_ratio * num_non_zeros)
@@ -106,13 +157,26 @@ class DisPFLClient(BaseClient):
                 torch.abs(weights[name]),
                 100000 * torch.ones_like(weights[name]),
             )
-            x, idx = torch.sort(temp_weights.view(-1).to(self.device))
-            new_masks[name].view(-1)[idx[: num_remove[name]]] = 0
+            idx = torch.sort(temp_weights.view(-1).to(self.device))
+            new_masks[name].view(-1)[idx[1][: num_remove[name]]] = 0
         return new_masks, num_remove
 
-    def regrow_mask(self, masks, num_remove, gradient=None):
+    def regrow_mask(
+        self,
+        masks: OrderedDict[str, Tensor],
+        num_remove: Dict[str, int],
+        gradient: Optional[Dict[str, Tensor]] = None,
+    ) -> OrderedDict[str, Tensor]:
         """
         Regrow mask method for model pruning.
+
+        Args:
+            masks (OrderedDict[str, Tensor]): The current mask.
+            num_remove (Dict[str, int]): Number of elements removed from the mask.
+            gradient (Optional[Dict[str, Tensor]]): Gradient information for regrowing the mask.
+
+        Returns:
+            OrderedDict[str, Tensor]: The updated mask after regrowth.
         """
         new_masks = copy.deepcopy(masks)
         for name in masks:
@@ -125,6 +189,9 @@ class DisPFLClient(BaseClient):
                 sort_temp, idx = torch.sort(
                     temp.view(-1).to(self.device), descending=True
                 )
+                
+                del sort_temp
+                
                 new_masks[name].view(-1)[idx[: num_remove[name]]] = 1
             else:
                 temp = torch.where(
@@ -138,9 +205,22 @@ class DisPFLClient(BaseClient):
                 new_masks[name].view(-1)[idx] = 1
         return new_masks
 
-    def aggregate(self, nei_indexes, weights_lstrnd, masks_lstrnd):
+    def aggregate(
+        self,
+        nei_indexes: List[int],
+        weights_lstrnd: List[OrderedDict[str, Tensor]],
+        masks_lstrnd: List[OrderedDict[str, Tensor]],
+    ) -> Tuple[OrderedDict[str, Tensor], OrderedDict[str, Tensor]]:
         """
-        Aggregate the model weights.
+        Aggregate the model weights from neighboring clients.
+
+        Args:
+            nei_indexes (List[int]): Indices of neighboring clients.
+            weights_lstrnd (List[OrderedDict[str, Tensor]]): List of weights from the last round.
+            masks_lstrnd (List[OrderedDict[str, Tensor]]): List of masks from the last round.
+
+        Returns:
+            Tuple[OrderedDict[str, Tensor], OrderedDict[str, Tensor]]: The aggregated model weights and masked weights.
         """
         count_mask = copy.deepcopy(masks_lstrnd[self.index])
         for k in count_mask.keys():
@@ -161,7 +241,7 @@ class DisPFLClient(BaseClient):
             w_tmp[k] = w_tmp[k] - w_tmp[k]
             for clnt in self.neighbors:
                 if k in self.params:
-                    w_tmp[k] += from_numpy(count_mask[k]).to(
+                    w_tmp[k] += torch.from_numpy(count_mask[k]).to(
                         self.device
                     ) * weights_lstrnd[clnt][k].to(self.device)
                 else:
@@ -171,21 +251,39 @@ class DisPFLClient(BaseClient):
             w_tmp[name] = w_tmp[name] * self.mask[name].to(self.device)
         return w_tmp, w_p_g
 
-    def send_representations(self, representation):
+    def send_representations(self, representation: OrderedDict[str, Tensor]) -> None:
         """
-        Set the model.
+        Send the model representation (weights) to other clients.
+
+        Args:
+            representation (OrderedDict[str, Tensor]): The model representation to be sent.
         """
         for client_node in self.clients:
             self.comm_utils.send_signal(client_node, representation, self.tag.UPDATES)
         print(f"Node 1 sent average weight to {len(self.clients)} nodes")
 
-    def calculate_sparsities(self, params, tabu=None, distribution="ERK", sparse=0.5):
+    def calculate_sparsities(
+        self,
+        params: Dict[str, Tensor],
+        tabu: Optional[List[str]] = None,
+        distribution: str = "ERK",
+        sparse: float = 0.5,
+    ) -> Dict[str, float]:
         """
-        Calculate sparsities for model pruning.
+        Calculate sparsities for model pruning based on different distributions.
+
+        Args:
+            params (Dict[str, Tensor]): Model parameters to calculate sparsity for.
+            tabu (Optional[List[str]]): List of parameters to exclude from pruning.
+            distribution (str): The type of distribution to use for sparsity calculation.
+            sparse (float): Sparsity ratio.
+
+        Returns:
+            Dict[str, float]: Sparsity values for each model parameter.
         """
         if tabu is None:
             tabu = []
-        sparsities = {}
+        sparsities: Dict[str, float] = {}
         if distribution == "uniform":
             for name in params:
                 if name not in tabu:
@@ -239,24 +337,36 @@ class DisPFLClient(BaseClient):
                     sparsities[name] = 1 - epsilon * raw_probabilities[name]
         return sparsities
 
-    def init_masks(self, params, sparsities):
+    def init_masks(
+        self, params: Dict[str, Tensor], sparsities: Dict[str, float]
+    ) -> OrderedDict[str, Tensor]:
         """
-        Initialize masks for model pruning.
+        Initialize masks for model pruning based on sparsity values.
+
+        Args:
+            params (Dict[str, Tensor]): Model parameters to prune.
+            sparsities (Dict[str, float]): Sparsity values for each parameter.
+
+        Returns:
+            OrderedDict[str, Tensor]: Initialized masks for the model parameters.
         """
         masks = OrderedDict()
         for name in params:
-            masks[name] = zeros_like(params[name])
-            dense_numel = int((1 - sparsities[name]) * numel(masks[name]))
+            masks[name] = torch.zeros_like(params[name])
+            dense_numel = int((1 - sparsities[name]) * masks[name].numel())
             if dense_numel > 0:
                 temp = masks[name].view(-1)
-                perm = randperm(len(temp))
+                perm = torch.randperm(len(temp))
                 perm = perm[:dense_numel]
                 temp[perm] = 1
         return masks
 
-    def screen_gradient(self):
+    def screen_gradient(self) -> Dict[str, Tensor]:
         """
-        Screen gradient method for model pruning.
+        Screen the gradient of the model during training.
+
+        Returns:
+            Dict[str, Tensor]: The gradients of the model parameters.
         """
         model = self.model
         model.eval()
@@ -273,9 +383,18 @@ class DisPFLClient(BaseClient):
 
         return gradient
 
-    def hamming_distance(self, mask_a, mask_b):
+    def hamming_distance(
+        self, mask_a: OrderedDict[str, Tensor], mask_b: OrderedDict[str, Tensor]
+    ) -> Tuple[int, int]:
         """
         Calculate the Hamming distance between two masks.
+
+        Args:
+            mask_a (OrderedDict[str, Tensor]): The first mask.
+            mask_b (OrderedDict[str, Tensor]): The second mask.
+
+        Returns:
+            Tuple[int, int]: The number of differing elements and the total number of elements.
         """
         dis = 0
         total = 0
@@ -288,20 +407,33 @@ class DisPFLClient(BaseClient):
 
     def _benefit_choose(
         self,
-        round_idx,
-        cur_clnt,
-        client_num_in_total,
-        client_num_per_round,
-        dist_local,
-        total_dist,
-        cs=False,
-        active_ths_rnd=None,
-    ):
+        round_idx: int,  # pylint: disable=unused-argument
+        cur_clnt: int,
+        client_num_in_total: int,
+        client_num_per_round: int,
+        dist_local: Optional[np.ndarray],  # pylint: disable=unused-argument
+        total_dist: Optional[np.ndarray],  # pylint: disable=unused-argument
+        cs: bool = False,
+        active_ths_rnd: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """
-        Benefit choose method for client selection.
+        Benefit choose method for client selection during federated learning.
+
+        Args:
+            round_idx (int): The current round index.
+            cur_clnt (int): The current client index.
+            client_num_in_total (int): The total number of clients.
+            client_num_per_round (int): The number of clients per round.
+            dist_local (Optional[np.ndarray]): Local distances (not used).
+            total_dist (Optional[np.ndarray]): Total distances (not used).
+            cs (bool): Whether to use client selection.
+            active_ths_rnd (Optional[np.ndarray]): Thresholds for active clients.
+
+        Returns:
+            np.ndarray: Array of selected client indexes.
         """
         if client_num_in_total == client_num_per_round:
-            client_indexes = list(range(client_num_in_total))
+            client_indexes = np.array(list(range(client_num_in_total)))
             return client_indexes
 
         if cs == "random":
@@ -326,18 +458,27 @@ class DisPFLClient(BaseClient):
             )
         return client_indexes
 
-    def model_difference(self, model_a, model_b):
+    def model_difference(
+        self, model_a: OrderedDict[str, Tensor], model_b: OrderedDict[str, Tensor]
+    ) -> Tensor:
         """
         Calculate the difference between two models.
+
+        Args:
+            model_a (OrderedDict[str, Tensor]): The first model.
+            model_b (OrderedDict[str, Tensor]): The second model.
+
+        Returns:
+            Tensor: The difference between the two models.
         """
         diff = sum(
             [torch.sum(torch.square(model_a[name] - model_b[name])) for name in model_a]
         )
         return diff
 
-    def run_protocol(self):
+    def run_protocol(self) -> None:
         """
-        Runs the entire training protocol.
+        Runs the entire training protocol for federated learning.
         """
         start_epochs = self.config.get("start_epochs", 0)
         total_epochs = self.config["epochs"]
@@ -346,7 +487,7 @@ class DisPFLClient(BaseClient):
             self.params, sparse=self.dense_ratio
         )  # calculate sparsity to create masks
         self.mask = self.init_masks(self.params, sparsities)  # mask_per_local
-        dist_locals = np.zeros(shape=(self.num_users))
+        dist_locals = np.zeros(shape=self.num_users)
         self.index = self.node_id - 1
         masks_lstrnd = [self.mask for i in range(self.num_users)]
         weights_lstrnd = [
@@ -384,9 +525,7 @@ class DisPFLClient(BaseClient):
                 )
             if self.num_users != self.config["neighbors"]:
                 nei_indexes = np.append(nei_indexes, self.index)
-            print(
-                f"Node {self.index}'s neighbors index:{[i + 1 for i in nei_indexes]}"
-            )
+            print(f"Node {self.index}'s neighbors index:{[i + 1 for i in nei_indexes]}")
 
             for tmp_idx in nei_indexes:
                 if tmp_idx != self.index:
@@ -424,46 +563,76 @@ class DisPFLClient(BaseClient):
             # locally train
             print(f"Node {self.node_id} local train")
             self.local_train()
-            loss, acc = self.local_test()
-            print(f"Node {self.node_id} local test: {acc}")
-            repr = self.get_representation()
+            acc = self.local_test()
+            print(f"Node {self.node_id} local test: {acc[1]}")
+            representation = self.get_representation()
             if not self.config["static"]:
                 if not self.dis_gradient_check:
                     gradient = self.screen_gradient()
                 self.mask, num_remove = self.fire_mask(self.mask, epoch, total_epochs)
                 self.mask = self.regrow_mask(self.mask, num_remove, gradient)
             self.comm_utils.send_signal(
-                dest=0, data=copy.deepcopy(repr), tag=self.tag.SHARE_WEIGHTS
+                dest=0, data=copy.deepcopy(representation), tag=self.tag.SHARE_WEIGHTS
             )
 
             # test updated model
-            self.set_representation(repr)
-            loss, acc = self.local_test()
-            self.comm_utils.send_signal(dest=0, data=acc, tag=self.tag.FINISH)
+            self.set_representation(representation)
+            acc = self.local_test()
+            self.comm_utils.send_signal(dest=0, data=acc[1], tag=self.tag.FINISH)
 
 
 class DisPFLServer(BaseServer):
     """
     Server class for DisPFL (Distributed Personalized Federated Learning).
+
+    Attributes:
+        config (Dict[str, Any]): Configuration dictionary with hyperparameters and paths.
+        best_acc (float): The best accuracy achieved so far.
+        round (int): Current training round.
+        masks (Any): Masks received from clients.
+        reprs (Any): Representations (weights) received from clients.
+        dense_ratio (float): Ratio of dense layers in the model.
+        num_users (int): Total number of users (clients) in the system.
     """
-    def __init__(self, config) -> None:
+
+    def __init__(self, config: Dict[str, Any]) -> None:
+        """
+        Initializes the DisPFLServer class.
+
+        Args:
+            config (Dict[str, Any]): Configuration dictionary containing settings and hyperparameters.
+        """
         super().__init__(config)
+        self.best_acc: float = 0
+        self.round: int = 0
+        self.masks: Any = 0
+        self.reprs: Any = 0
         self.config = config
         self.set_model_parameters(config)
         self.tag = CommProtocol
-        self.model_save_path = f"{self.config['results_path']}/saved_models/node_{self.node_id}.pt"
-        self.dense_ratio = self.config["dense_ratio"]
-        self.num_users = self.config["num_users"]
+        self.model_save_path = (
+            f"{self.config['results_path']}/saved_models/node_{self.node_id}.pt"
+        )
+        self.dense_ratio: float = self.config["dense_ratio"]
+        self.num_users: int = self.config["num_users"]
 
     def get_representation(self) -> OrderedDict[str, Tensor]:
         """
-        Share the model weights.
+        Retrieve the current model weights.
+
+        Returns:
+            OrderedDict[str, Tensor]: The model weights.
         """
         return self.model.state_dict()
 
-    def send_representations(self, representations):
+    def send_representations(
+        self, representations: Dict[int, OrderedDict[str, Tensor]]
+    ) -> None:
         """
-        Set the model.
+        Send model representations (weights) to the clients.
+
+        Args:
+            representations (Dict[int, OrderedDict[str, Tensor]]): The model representations to be sent to clients.
         """
         for client_node in self.users:
             self.comm_utils.send_signal(client_node, representations, self.tag.UPDATES)
@@ -474,19 +643,26 @@ class DisPFLServer(BaseServer):
     def test(self) -> float:
         """
         Test the model on the server.
+
+        Returns:
+            float: The accuracy of the model on the test set.
         """
-        test_loss, acc = self.model_utils.test(
+        acc = self.model_utils.test(
             self.model, self._test_loader, self.loss_fn, self.device
         )
         # TODO save the model if the accuracy is better than the best accuracy so far
-        if acc > self.best_acc:
-            self.best_acc = acc
+        if acc[1] > self.best_acc:
+            self.best_acc = acc[1]
             self.model_utils.save_model(self.model, self.model_save_path)
-        return acc
+        return acc[1]
 
-    def single_round(self, epoch, active_ths_rnd):
+    def single_round(self, epoch: int, active_ths_rnd: np.ndarray) -> None:
         """
-        Runs the whole training procedure.
+        Executes a single round of training and communication with clients.
+
+        Args:
+            epoch (int): The current epoch (round number).
+            active_ths_rnd (np.ndarray): Array indicating which clients are active in the current round.
         """
         for client_node in self.users:
             self.log_utils.log_console(
@@ -509,15 +685,21 @@ class DisPFLServer(BaseServer):
             self.users, self.tag.SHARE_WEIGHTS
         )
 
-    def get_trainable_params(self):
+    def get_trainable_params(self) -> Dict[str, Tensor]:
+        """
+        Retrieve the trainable parameters of the model.
+
+        Returns:
+            Dict[str, Tensor]: A dictionary of model parameters.
+        """
         param_dict = {}
         for name, param in self.model.named_parameters():
             param_dict[name] = param
         return param_dict
 
-    def run_protocol(self):
+    def run_protocol(self) -> None:
         """
-        Runs the entire training protocol.
+        Runs the entire training protocol for federated learning.
         """
         self.log_utils.log_console("Starting iid clients federated averaging")
         start_epochs = self.config.get("start_epochs", 0)

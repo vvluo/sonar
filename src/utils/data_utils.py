@@ -1,16 +1,19 @@
 import importlib
-from typing import Any, List, Sequence, Tuple
+from typing import Any, List, Sequence, Tuple, Optional
 import numpy as np
 import torch
 import torchvision.transforms as T
-from torch.utils.data import Subset
-
+from torchvision import datasets, transforms
+from torch.utils.data import Subset, Dataset
+from torch import Tensor
+from utils.corruptions import corrupt_mapping
 
 
 class CacheDataset:
     """
     Caches the entire dataset in memory.
     """
+
     def __init__(self, dset: Subset[Any]):
         self.data: List[Any] = []
         self.targets = getattr(dset, "targets", None)
@@ -28,6 +31,7 @@ class TransformDataset:
     """
     Applies a transformation to the dataset.
     """
+
     def __init__(self, dset: CacheDataset, transform: T.Compose):
         self.dset = dset
         self.transform = transform
@@ -38,6 +42,28 @@ class TransformDataset:
         return img, label
 
     def __len__(self):
+        return len(self.dset)
+    
+# Custom dataset wrapper to apply corruption
+class CorruptDataset:
+    def __init__(self, dset: CacheDataset, corruption_fn_name, severity: int = 1):
+        print("Initialized CorruptDataset with corruption_fn_name: ", corruption_fn_name)
+        self.dset = dset # Original dataset
+        self.corruption_fn = corrupt_mapping[corruption_fn_name]  # Corruption function
+        self.severity = severity  # Corruption severity
+
+    def __getitem__(self, index: int) -> Tuple[np.ndarray, int]:
+        data, target = self.dset[index]  # Get a single image and label
+        data_np = np.array(data)  # Convert image to NumPy
+
+        # Transpose the data from (channels, height, width) to (height, width, channels)
+        # data_np = data_np.transpose(1, 2, 0)
+
+        data_np = self.corruption_fn(data_np, severity=self.severity)  # Apply corruption
+        data_np = data_np.astype(np.float32)
+        return data_np, target
+
+    def __len__(self) -> int:
         return len(self.dset)
 
 
@@ -61,9 +87,8 @@ def get_dataset(dname: str, dpath: str):
         "organsmnist": ("data_loaders.medmnist", "OrganSMNISTDataset"),
         "domainnet": ("data_loaders.domainnet", "DomainNetDataset"),
         "wilds": ("data_loaders.wilds", "WildsDataset"),
-        "pascal": ("data_loaders.pascal", "PascalDataset")
+        "pascal": ("data_loaders.pascal", "PascalDataset"),
     }
-
 
     if dname.startswith("wilds"):
         dname_parts = dname.split("_")
@@ -94,7 +119,9 @@ def filter_by_class(dataset: Subset[Any], classes: List[str]):
     return Subset(dataset, indices), indices
 
 
-def random_samples(dataset: Subset[Any], num_samples: int) -> Tuple[Subset[Any], np.ndarray]:
+def random_samples(
+    dataset: Subset[Any], num_samples: int
+) -> Tuple[Subset[Any], np.ndarray]:
     """
     Returns a random subset of samples from the dataset.
     """
@@ -106,13 +133,20 @@ def extr_noniid(train_dataset: Any, samples_per_user: int, classes: Sequence[int
     """
     Extracts non-IID data from the training dataset.
     """
-    all_data = Subset(train_dataset, [i for i, (_, y) in enumerate(train_dataset) if y in classes])
+    all_data = Subset(
+        train_dataset, [i for i, (_, y) in enumerate(train_dataset) if y in classes]
+    )
     perm = torch.randperm(len(all_data))
     return Subset(all_data, perm[:samples_per_user])
 
 
 def cifar_extr_noniid(
-    train_dataset: Subset[Any], test_dataset: Subset[Any], num_users: int, n_class: int, num_samples: int, rate_unbalance: float
+    train_dataset: Subset[Any],
+    test_dataset: Subset[Any],
+    num_users: int,
+    n_class: int,
+    num_samples: int,
+    rate_unbalance: float,
 ):
     """
     Extracts non-IID data for CIFAR-10 dataset.
@@ -154,14 +188,14 @@ def cifar_extr_noniid(
                 dict_users_train[i] = np.concatenate(
                     (
                         dict_users_train[i],
-                        idxs[rand * num_imgs_train: (rand + 1) * num_imgs_train],
+                        idxs[rand * num_imgs_train : (rand + 1) * num_imgs_train],
                     ),
                     axis=0,
                 )
                 user_labels = np.concatenate(
                     (
                         user_labels,
-                        labels[rand * num_imgs_train: (rand + 1) * num_imgs_train],
+                        labels[rand * num_imgs_train : (rand + 1) * num_imgs_train],
                     ),
                     axis=0,
                 )
@@ -170,7 +204,10 @@ def cifar_extr_noniid(
                     (
                         dict_users_train[i],
                         idxs[
-                            rand * num_imgs_train: int((rand + rate_unbalance) * num_imgs_train)
+                            rand
+                            * num_imgs_train : int(
+                                (rand + rate_unbalance) * num_imgs_train
+                            )
                         ],
                     ),
                     axis=0,
@@ -179,20 +216,25 @@ def cifar_extr_noniid(
                     (
                         user_labels,
                         labels[
-                            rand * num_imgs_train: int((rand + rate_unbalance) * num_imgs_train)
+                            rand
+                            * num_imgs_train : int(
+                                (rand + rate_unbalance) * num_imgs_train
+                            )
                         ],
                     ),
                     axis=0,
                 )
             unbalance_flag = 1
-        
+
         user_labels_set = set(user_labels)
         for label in user_labels_set:
             dict_users_test[i] = np.concatenate(
                 (
                     dict_users_test[i],
                     idxs_test[
-                        int(label) * num_imgs_perc_test: int(label + 1) * num_imgs_perc_test
+                        int(label)
+                        * num_imgs_perc_test : int(label + 1)
+                        * num_imgs_perc_test
                     ],
                 ),
                 axis=0,
@@ -201,11 +243,11 @@ def cifar_extr_noniid(
     return dict_users_train, dict_users_test
 
 
-def balanced_subset(dataset, num_samples):
+def balanced_subset(dataset: Dataset, num_samples: int) -> Tuple[Subset, List[int]]:
     """
     Returns a balanced subset of the dataset.
     """
-    indices = []
+    indices: List[int] = []
     targets = np.array(dataset.targets)
     classes = set(dataset.targets)
     for c in classes:
@@ -214,16 +256,20 @@ def balanced_subset(dataset, num_samples):
     return Subset(dataset, indices), indices
 
 
-def random_balanced_subset(dataset, num_samples):
+def random_balanced_subset(
+    dataset: Dataset, num_samples: int
+) -> Tuple[Subset, List[int]]:
     """
     Returns a random balanced subset of the dataset.
     """
-    indices = []
+    indices: List[int] = []
     targets = np.array(dataset.targets)
     classes = set(dataset.targets)
     for c in classes:
         indices += list(
-            np.random.choice(list((targets == c).nonzero()[0]), num_samples, replace=False)
+            np.random.choice(
+                list((targets == c).nonzero()[0]), num_samples, replace=False
+            )
         )
     return Subset(dataset, indices), indices
 
@@ -246,10 +292,18 @@ def non_iid_unbalanced_dataidx_map(dset_obj, n_parties, beta=0.4):
             idx_k = np.where(labels == k)[0]
             np.random.shuffle(idx_k)
             proportions = np.random.dirichlet(np.repeat(beta, n_parties))
-            proportions = np.array([p * (len(idx_j) < N / n_parties) for p, idx_j in zip(proportions, idx_batch)])
+            proportions = np.array(
+                [
+                    p * (len(idx_j) < N / n_parties)
+                    for p, idx_j in zip(proportions, idx_batch)
+                ]
+            )
             proportions = proportions / proportions.sum()
             proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
-            idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
+            idx_batch = [
+                idx_j + idx.tolist()
+                for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))
+            ]
             min_size = min([len(idx_j) for idx_j in idx_batch])
 
     net_dataidx_map = {}
@@ -259,7 +313,14 @@ def non_iid_unbalanced_dataidx_map(dset_obj, n_parties, beta=0.4):
     return net_dataidx_map
 
 
-def non_iid_balanced(dset_obj, n_client, n_data_per_clnt, alpha=0.4, cls_priors=None, is_train=True):
+def non_iid_balanced(
+    dset_obj: Dataset,
+    n_client: int,
+    n_data_per_clnt: int,
+    alpha: float = 0.4,
+    cls_priors: Optional[np.ndarray] = None,
+    is_train: bool = True,
+) -> Tuple[np.ndarray, List[List[int]], np.ndarray]:
     """
     Returns a non-IID balanced dataset.
     """
@@ -267,17 +328,20 @@ def non_iid_balanced(dset_obj, n_client, n_data_per_clnt, alpha=0.4, cls_priors=
         y = np.array(dset_obj.train_dset.targets)
     else:
         y = np.array(dset_obj.test_dset.targets)
-    
+
     n_cls = dset_obj.num_cls
     clnt_data_list = (np.ones(n_client) * n_data_per_clnt).astype(int)
     if cls_priors is None:
         cls_priors = np.random.dirichlet(alpha=[alpha] * n_cls, size=n_client)
-    
+
     prior_cumsum = np.cumsum(cls_priors, axis=1)
     idx_list = [np.where(y == i)[0] for i in range(n_cls)]
     cls_amount = np.array([len(idx_list[i]) for i in range(n_cls)])
-    clnt_y = [np.zeros((clnt_data_list[clnt__], 1)).astype(np.int64) for clnt__ in range(n_client)]
-    clnt_idx = [[] for clnt__ in range(n_client)]
+    clnt_y = [
+        np.zeros((clnt_data_list[clnt__], 1), dtype=np.int64)
+        for clnt__ in range(n_client)
+    ]
+    clnt_idx = [[] for _ in range(n_client)]
     clients = list(np.arange(n_client))
 
     while np.sum(clnt_data_list) != 0:
@@ -288,7 +352,9 @@ def non_iid_balanced(dset_obj, n_client, n_data_per_clnt, alpha=0.4, cls_priors=
         clnt_data_list[curr_clnt] -= 1
         curr_prior = prior_cumsum[curr_clnt]
         while True:
-            cls_label = np.argmax((np.random.uniform() <= curr_prior) & (cls_amount > 0))
+            cls_label = np.argmax(
+                (np.random.uniform() <= curr_prior) & (cls_amount > 0)
+            )
             if cls_amount[cls_label] <= 0:
                 continue
             cls_amount[cls_label] -= 1

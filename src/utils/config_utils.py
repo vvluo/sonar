@@ -28,11 +28,10 @@ def process_config(config: Dict[str, Any]) -> Dict[str, Any]:
     else:
         dset = config["dset"]
 
-    experiment_name = "{}_{}users_{}spc_{}_{}".format(
+    experiment_name = "{}_{}users_{}_{}".format(
         dset,
         config["num_users"],
         config["samples_per_user"],
-        config["algo"],
         config["exp_id"],
     )
 
@@ -62,7 +61,9 @@ def process_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return config
 
 
-def get_sliding_window_support(num_users: int, num_classes: int, num_classes_per_client: int):
+def get_sliding_window_support(
+    num_users: int, num_classes: int, num_classes_per_client: int
+):
     num_client_with_same_support = max(num_users // num_classes, 1)
     support: Dict[str, List[int]] = {}
     # Slide window by 1, clients with same support are consecutive
@@ -74,9 +75,7 @@ def get_sliding_window_support(num_users: int, num_classes: int, num_classes_per
     return support
 
 
-def get_device_ids(
-    num_users: int, num_client_per_gpu: int, available_gpus: list[int]
-):
+def get_device_ids(num_users: int, num_client_per_gpu: int, available_gpus: list[int]):
     assert num_users <= len(available_gpus) * num_client_per_gpu
     device_ids: Dict[str, List[int]] = {}
 
