@@ -209,7 +209,93 @@ class ModelUtils():
 
         acc = correct / len(dloader.dataset)
         return train_loss, acc
+
+
+    def forward_si_client(self,
+    model: nn.Module,
+    global_pool,
+    view_layer,
+    optim,
+    data,
+    device: torch.device,
+    test_loader=None,
+    **kwargs):
+        #print("started training with dset ", self.dset)
         
+        model.train()
+        
+        #target = target.to(device)
+        optim.zero_grad()
+        
+        intermediate = model(data)
+        intermediate = global_pool(intermediate)
+        intermediate = view_layer(intermediate)
+
+        intermediate = intermediate.detach()
+        intermediate.requires_grad = True
+        # print("here is the shape of intermediate", intermediate.shape)
+        return intermediate
+    
+    def forward_si_server(self,
+    model: nn.Module,
+    optim,
+    intermediate,
+    device: torch.device,
+    test_loader=None,
+    **kwargs):
+        #print("started training with dset ", self.dset)
+        model.train()
+        intermediate.retain_grad()
+
+        #position = kwargs.get("position", 0)
+        output = model(intermediate)
+
+            # if kwargs.get("apply_softmax", False):
+            #     output = nn.functional.log_softmax(
+            #         output, dim=1)  # type: ignore
+        return output
+    
+    def backward_si_server(self,
+    optim,
+    intermediate,
+    output,
+    target,
+    loss_fn,
+    device: torch.device,
+    test_loader=None,
+    **kwargs):
+        #model.train()
+        
+        optim.zero_grad()
+        #print("started training with dset ", self.dset)
+        
+        loss = loss_fn(output, target)
+        loss.backward()
+        optim.step()
+            # if kwargs.get("apply_softmax", False):
+            #     output = nn.functional.log_softmax(
+            #         output, dim=1)  # type: ignore
+        return intermediate.grad
+    
+    def backward_si_client(self,
+    optim,
+    intermediate,
+    gradients,
+    device: torch.device,
+    test_loader=None,
+    **kwargs):
+        #model.train()
+        
+        optim.zero_grad()
+        #print("started training with dset ", self.dset)
+        
+        intermediate.backward(gradients)
+        optim.step()
+            # if kwargs.get("apply_softmax", False):
+            #     output = nn.functional.log_softmax(
+            #         output, dim=1)  # type: ignore
+
+
     def train_mask(self,
     model: nn.Module,
     mask,

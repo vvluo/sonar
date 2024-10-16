@@ -102,6 +102,17 @@ class BaseNode(ABC):
             num_channels=num_channels,
             pretrained=config.get("pretrained", False),
         )
+        if config.get("second_layer", False):
+            self.model2 = self.model_utils.get_model(
+                config["model"],
+                self.dset,
+                self.device,
+                self.device_ids,
+                num_classes=num_classes,
+                num_channels=num_channels,
+                pretrained=config.get("pretrained", False),
+            )
+
         self.optim = optim(
             self.model.parameters(),
             lr=config["model_lr"],

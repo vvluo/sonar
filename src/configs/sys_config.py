@@ -67,7 +67,7 @@ mpi_system_config = {
     "comm": {
         "type": "MPI"
     },
-    "num_users": 4,
+    "num_users": 6,
     # "experiment_path": "./experiments/",
     "dset": "cifar10",
     "dump_dir": "./expt_dump/",
@@ -76,7 +76,7 @@ mpi_system_config = {
     # node_0 is a server currently
     # The device_ids dictionary depicts the GPUs on which the nodes reside.
     # For a single-GPU environment, the config will look as follows (as it follows a 0-based indexing):
-    "device_ids": {"node_0": [0], "node_1": [0],"node_2": [0], "node_3": [0]},
+    "device_ids": {"node_0": [0], "node_1": [0],"node_2": [0], "node_3": [0], "node_4": [0], "node_5": [0], "node_6": [0]},
     "samples_per_user": 1000, #TODO: To model scenarios where different users have different number of samples
     # we need to make this a dictionary with user_id as key and number of samples as value
     "train_label_distribution": "iid", # Either "iid", "non_iid" "support" 

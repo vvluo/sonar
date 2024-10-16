@@ -73,9 +73,9 @@ iid_clients_federated_new = {
     "seed": 2,
     # server can have overlapping device ids with clients because
     # both are not used at the same time
-    "device_ids": {"node_0": [0], "node_1": [0], "node_2": [0], "node_3": [0]},
+    "device_ids": {"node_0": [0], "node_1": [0], "node_2": [0], "node_3": [0], "node_4": [0], "node_5": [0]},
     # Learning setup
-    "num_clients": 3,
+    "num_clients": 5,
     "samples_per_user": 2000,
     "epochs": 1000,
     "model": "resnet34",

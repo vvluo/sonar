@@ -263,4 +263,28 @@ fedstatic: ConfigType = {
     "exp_keys": [],
 }
 
-current_config = traditional_fl
+split_inference: ConfigType = {
+    "algo": "split_inference",
+    "model": "resnet10",
+    "model_lr": 3e-4,
+    # "client": {"model_name": "resnet18", "split_layer": 6,
+    #            "pretrained": false, "optimizer": "adam", "lr": 3e-4},
+    # "server": {"model_name": "resnet18", "split_layer": 6, "logits": 2, "pretrained": false,
+    #            "lr": 3e-4, "optimizer": "adam"},
+    "split_layer": 6,
+    "learning_rate": 0.01,
+    "epochs": 5,#150,
+    "batch_size": 128,
+    "training_batch_size": 512,#128, this might be mixed
+    "dataset": "fairface",
+    "protected_attribute": "data",
+    "prediction_attribute": "gender",
+    "exp_id": "1",
+    "img_size": 128,
+    "split": False,
+    "test_batch_size": 64,
+    "seed": 12,
+    "exp_keys": []
+}
+
+current_config = split_inference

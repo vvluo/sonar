@@ -27,6 +27,7 @@ from algos.MetaL2C import MetaL2CClient, MetaL2CServer
 from algos.fl_central import CentralizedCLient, CentralizedServer
 from algos.fl_data_repr import FedDataRepClient, FedDataRepServer
 from algos.fl_val import FedValClient, FedValServer
+from algos.split_inference import SplitInferenceClient, SplitInferenceServer
 
 from utils.communication.comm_utils import CommunicationManager
 from utils.config_utils import load_config, process_config
@@ -56,6 +57,8 @@ algo_map = {
     "centralized": [CentralizedServer, CentralizedCLient],
     "feddatarepr": [FedDataRepServer, FedDataRepClient],
     "fedval": [FedValServer, FedValClient],
+
+    "split_inference":[SplitInferenceServer, SplitInferenceClient],
 }
 
 def get_node(config: Dict[str, Any], rank: int, comm_utils: CommunicationManager) -> BaseNode:
