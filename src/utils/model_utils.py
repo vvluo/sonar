@@ -390,7 +390,6 @@ class ModelUtils:
         **kwargs,
     ) -> Tuple[float, float]:
         """TODO: generate docstring"""
-
         model.train()
         train_loss = 0
         correct = 0
