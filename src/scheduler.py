@@ -51,7 +51,6 @@ algo_map: Dict[str, List[FedAvgClient]] = { # type: ignore
     "centralized": [CentralizedServer, CentralizedCLient],
     "feddatarepr": [FedDataRepServer, FedDataRepClient],
     "fedval": [FedValServer, FedValClient],
-
     "split_inference":[SplitInferenceServer, SplitInferenceClient],
 }
 
